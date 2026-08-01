@@ -165,7 +165,8 @@ cython_debug/
 #pytransform
 pytransform/
 
-#config file
+# config files (never commit credentials)
+config.py
 mainConfig.py
 
 #testing file
