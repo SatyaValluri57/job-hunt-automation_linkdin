@@ -185,7 +185,17 @@ class Linkedin:
                     appliedOfferIds = []
                     for offer in offersPerPage:
                         try:
-                            if self.element_exists(offer, By.XPATH, ".//*[contains(text(), 'Applied')]"):
+                            # Strict check: only match the 'Applied' badge LinkedIn shows
+                            # for jobs you already submitted — not 'X applicants applied'.
+                            already_applied = (
+                                self.element_exists(offer, By.XPATH,
+                                    ".//*[contains(@class,'job-card-container__footer-job-state') and normalize-space(text())='Applied']")
+                                or self.element_exists(offer, By.XPATH,
+                                    ".//*[contains(@class,'artdeco-inline-feedback') and normalize-space(text())='Applied']")
+                                or self.element_exists(offer, By.XPATH,
+                                    ".//li-icon[@type='checkmark-icon']/following-sibling::*[normalize-space(text())='Applied']")
+                            )
+                            if already_applied:
                                 offerId = offer.get_attribute("data-occludable-job-id")
                                 if offerId:
                                     appliedOfferIds.append(int(offerId.split(":")[-1]))
