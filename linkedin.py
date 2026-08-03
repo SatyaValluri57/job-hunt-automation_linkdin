@@ -30,6 +30,9 @@ from smart_apply.review_queue import add_low_confidence, add_external_apply
 from smart_apply.daily_summary import write_daily_summary
 from smart_apply.field_detector import detect_unknown_fields
 from smart_apply.field_filler import fill_unknown_fields
+from smart_apply.resume_uploader import choose_or_upload_resume
+from smart_apply.resume_generator import generate_tailored_resume_pdf
+from smart_apply.telegram_notifier import send_daily_summary
 
 try:
     from smart_apply.groq_tailorer import score_match_with_ai
@@ -254,6 +257,18 @@ class Linkedin:
                             continue
                         # ──────────────────────────────────────────────────
 
+                        # ── Smart Apply: generate JD-tailored resume PDF ────
+                        generated_resume_path = None
+                        if (getattr(config, "useAiResumeGeneration", False)
+                                and getattr(config, "useGroqAI", False) and jd_text):
+                            try:
+                                generated_resume_path = generate_tailored_resume_pdf(
+                                    jd_text, os.path.join("generated_resumes", f"resume_{jobID}.pdf")
+                                )
+                            except Exception:
+                                generated_resume_path = None
+                        # ──────────────────────────────────────────────────
+
                         easyApplybutton = self.easyApplyButton()
 
                         if easyApplybutton is not None:
@@ -271,7 +286,9 @@ class Linkedin:
                                 pass
                             
                             try:
-                                self.chooseResume()
+                                choose_or_upload_resume(
+                                    self.driver, getattr(config, "preferredCv", 1), generated_resume_path
+                                )
                                 # Fill phone number before submitting
                                 self.fillPhoneNumber()
 
@@ -300,19 +317,32 @@ class Linkedin:
 
                             except Exception:
                                 try:
-                                    # Fill phone number before continuing
+                                    # Fill phone number and any unknown fields on this page before continuing
                                     self.fillPhoneNumber()
+                                    choose_or_upload_resume(
+                                        self.driver, getattr(config, "preferredCv", 1), generated_resume_path
+                                    )
+                                    unknown_fields = detect_unknown_fields(self.driver)
+                                    if unknown_fields:
+                                        countLowConfidence += fill_unknown_fields(
+                                            unknown_fields, jd_text, jobProperties, str(offerPage), jobID
+                                        )
                                     self.driver.find_element(By.CSS_SELECTOR,"button[aria-label='Continue to next step']").click()
                                     time.sleep(random.uniform(1, constants.botSpeed))
-                                    self.chooseResume()
+                                    choose_or_upload_resume(
+                                        self.driver, getattr(config, "preferredCv", 1), generated_resume_path
+                                    )
                                     comPercentage = self.driver.find_element(By.XPATH,'html/body/div[3]/div/div/div[2]/div/div/span').text
                                     percenNumber = int(comPercentage[0:comPercentage.index("%")])
-                                    
+
                                     # For multi-step forms, respect dry-run as well.
                                     if config.dryRun:
                                         result = "* 🧪 DRY RUN - Would go through multi-step application: " + str(offerPage)
                                     else:
-                                        result = self.applyProcess(percenNumber,offerPage)
+                                        result, mid_low_conf = self.applyProcess(
+                                            percenNumber, offerPage, jd_text, jobProperties, jobID, generated_resume_path
+                                        )
+                                        countLowConfidence += mid_low_conf
 
                                     lineToWrite = jobProperties + " | " + result
                                     self.displayWriteResults(lineToWrite)
@@ -320,10 +350,12 @@ class Linkedin:
                                         countApplied += 1
                                         if config.maxApplicationsPerRun and countApplied >= config.maxApplicationsPerRun:
                                             reachedCap = True
-                                
-                                except Exception: 
+
+                                except Exception:
                                     countCannotApply += 1
-                                    self.chooseResume()
+                                    choose_or_upload_resume(
+                                        self.driver, getattr(config, "preferredCv", 1), generated_resume_path
+                                    )
                                     lineToWrite = jobProperties + " | " + "* 🥵 Cannot apply to this Job! " +str(offerPage)
                                     self.displayWriteResults(lineToWrite)
                         else:
@@ -370,26 +402,11 @@ class Linkedin:
             "duration_min": round(durationSec / 60, 1),
         }
         write_daily_summary(stats)
+        send_daily_summary(stats)
         utils.printSessionSummary(
             countJobs, countApplied, countBlacklisted, countAlreadyApplied, countCannotApply, durationSec
         )
         utils.donate()
-
-    def chooseResume(self) -> None:
-        try:
-            self.driver.find_element(
-                By.CLASS_NAME, "jobs-document-upload__title--is-required")
-            resumes = self.driver.find_elements(
-                By.XPATH, "//div[contains(@class, 'ui-attachment--pdf')]")
-            if (len(resumes) == 1 and resumes[0].get_attribute("aria-label") == "Select this resume"):
-                resumes[0].click()
-            elif (len(resumes) > 1 and resumes[config.preferredCv-1].get_attribute("aria-label") == "Select this resume"):
-                resumes[config.preferredCv-1].click()
-            elif (type(len(resumes)) != int):
-                utils.prRed(
-                    "❌ No resume has been selected please add at least one resume to your Linkedin account.")
-        except Exception:
-            pass
 
     def getJobProperties(self, count: int) -> str:
         textToWrite = ""
@@ -539,12 +556,22 @@ class Linkedin:
             if config.displayWarnings:
                 utils.prYellow(f"⚠️ Warning: Error in fillPhoneNumber: {str(e)[0:50]}")
 
-    def applyProcess(self, percentage: int, offerPage: str) -> str:
-        applyPages = math.floor(100 / percentage) - 2 
+    def applyProcess(
+        self, percentage: int, offerPage: str, jd_text: str = "", jobProperties: str = "",
+        jobID: int = 0, generated_resume_path: Optional[str] = None
+    ) -> tuple:
+        applyPages = math.floor(100 / percentage) - 2
         result = ""
+        low_conf_count = 0
         for pages in range(applyPages):
-            # Fill phone number before continuing to next step
+            # Fill phone number, resume, and any unknown fields before continuing to next step
             self.fillPhoneNumber()
+            choose_or_upload_resume(self.driver, getattr(config, "preferredCv", 1), generated_resume_path)
+            unknown_fields = detect_unknown_fields(self.driver)
+            if unknown_fields:
+                low_conf_count += fill_unknown_fields(
+                    unknown_fields, jd_text, jobProperties, str(offerPage), jobID
+                )
             self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Continue to next step']").click()
             time.sleep(random.uniform(1, constants.botSpeed))
 
@@ -554,7 +581,7 @@ class Linkedin:
         if config.dryRun:
             # In dry-run mode, navigate up to this point but do not submit.
             result = "* 🧪 DRY RUN - Would apply to this job: " + str(offerPage)
-            return result
+            return result, low_conf_count
 
         self.driver.find_element( By.CSS_SELECTOR, "button[aria-label='Review your application']").click()
         time.sleep(random.uniform(1, constants.botSpeed))
@@ -570,7 +597,7 @@ class Linkedin:
 
         result = "* 🥳 Just Applied to this job: " + str(offerPage)
 
-        return result
+        return result, low_conf_count
 
     def displayWriteResults(self, lineToWrite: str) -> None:
         try:

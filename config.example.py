@@ -144,3 +144,8 @@ resumeSummary = (
 )
 
 useGroqAI = False
+
+# Requires useGroqAI = True. Generates a JD-tailored, ATS-aligned PDF resume per job
+# using resume_data.yaml + config.mySkills, rendered via Jinja2 + WeasyPrint.
+# Falls back to your static resume in resumes/ if generation fails for any reason.
+useAiResumeGeneration = False

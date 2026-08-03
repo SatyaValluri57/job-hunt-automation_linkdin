@@ -187,4 +187,11 @@ scripts/daily-improve.ps1
 docs/DAILY_IMPROVE_SETUP.md
 # user profile data (sensitive — never commit)
 profile_data.yaml
+resume_data.yaml
 .env
+
+# resume files (personal — never push)
+resumes/*.pdf
+resumes/*.docx
+resumes/*.doc
+generated_resumes/*.pdf

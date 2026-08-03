@@ -1,0 +1,40 @@
+# ── resume_data.example.yaml ──────────────────────────────────────────────────
+# COPY this file to resume_data.yaml and fill in YOUR real resume data.
+# resume_data.yaml is in .gitignore and will NEVER be pushed to GitHub.
+#
+# This is the factual "reference resume" the bot tailors per job description:
+#   - summary and experience bullets get reworded/reordered by Groq to match the JD
+#   - skills come from config.mySkills (not repeated here) — Groq only ever
+#     reorders/filters that list, never invents new skills
+# No company, title, date, or degree is ever invented — only wording/order changes.
+# ────────────────────────────────────────────────────────────────────────────────
+
+summary: >
+  Add your real reference resume summary here. 3-5 sentences describing your
+  overall experience, strengths, and the kind of role you're targeting.
+
+experience:
+  - company: "Your Company Name"
+    title: "Your Job Title"
+    location: "City, Country"
+    start_date: "Jan 2022"
+    end_date: "Present"
+    bullets:
+      - "Real accomplishment #1 — what you did and the measurable result."
+      - "Real accomplishment #2 — what you did and the measurable result."
+      - "Real accomplishment #3 — what you did and the measurable result."
+
+  - company: "Previous Company Name"
+    title: "Previous Job Title"
+    location: "City, Country"
+    start_date: "Jun 2019"
+    end_date: "Dec 2021"
+    bullets:
+      - "Real accomplishment #1."
+      - "Real accomplishment #2."
+
+education:
+  - degree: "Bachelor of Technology"
+    university: "Your University Name"
+    graduation_year: "2019"
+    location: "City, Country"

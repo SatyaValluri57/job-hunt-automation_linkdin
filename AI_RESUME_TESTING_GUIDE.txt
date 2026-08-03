@@ -1,0 +1,439 @@
+================================================================================
+   SMART APPLY — AI RESUME GENERATION — END-TO-END TEST GUIDE (Windows Device)
+================================================================================
+This guide is specific to testing the NEW feature on branch feature/smart-apply-pipeline:
+  - JD-tailored, ATS-aligned resume generation via Groq + WeasyPrint
+  - Telegram approve/edit/skip for low-confidence form fields (optional)
+  - Resume upload (AI-generated PDF, with fallback to your static resumes/ file)
+
+IMPORTANT NOTES:
+  - config.py, profile_data.yaml, resume_data.yaml, and .env are NEVER pushed to
+    GitHub (all in .gitignore) — safe to put real data in them locally.
+  - config.py IS tracked by git despite being in .gitignore (a pre-existing repo
+    quirk). Once you fill it with real credentials, do NOT run:
+        git add config.py
+        git add -A
+        git add .
+    Only stage other files by name when committing.
+  - This guide tests a REAL submission on your BACKUP LinkedIn account
+    (dryRun = False). Re-read Phase 4 carefully before running.
+================================================================================
+
+
+------------------------------------------------------------------------
+PHASE 1 — INSTALL PREREQUISITES
+------------------------------------------------------------------------
+
+STEP 1: Confirm Git, Python, Chrome are installed (skip if already done)
+  git --version
+  python --version
+  pip --version
+    Expected: git 2.x.x, Python 3.11.x, pip 23.x+
+  (If missing, see the general TESTING_GUIDE.txt Phase 1 for install links.)
+
+STEP 2: Install the bot's Python packages
+  cd EasyApplyJobsBot
+  pip install -r requirements.txt
+
+  This installs (relevant to this feature):
+    - groq            (AI tailoring calls)
+    - python-dotenv   (loads GROQ_API_KEY / TELEGRAM_* from .env)
+    - requests        (Telegram HTTP calls)
+    - Jinja2          (fills the resume HTML template)
+    - WeasyPrint      (converts the filled template to a real PDF)
+
+STEP 3: Install WeasyPrint's native libraries (Windows-only extra step)
+  WeasyPrint needs the GTK3 runtime installed at the OS level — "pip install"
+  alone is NOT enough on Windows.
+    1. Go to: https://weasyprint.readthedocs.io/en/stable/first_steps.html#windows
+    2. Follow the "Windows" section to install the GTK3 runtime (MSYS2-based
+       installer link is on that page)
+    3. Restart Command Prompt after installing
+
+  Skip this step ONLY if you plan to leave useAiResumeGeneration = False —
+  the bot will then just use your existing static resume from resumes/,
+  and this whole feature is a no-op.
+
+  Verify WeasyPrint works after installing:
+    python -c "import weasyprint; print('WeasyPrint OK')"
+  Expected output: WeasyPrint OK
+  If this errors out, do NOT proceed to Phase 5 with useAiResumeGeneration = True
+  yet — fix this first (see TROUBLESHOOTING at the bottom).
+
+
+------------------------------------------------------------------------
+PHASE 2 — GET A GROQ API KEY (free)
+------------------------------------------------------------------------
+
+STEP 4: Create a free Groq API key
+  1. Go to: https://console.groq.com
+  2. Sign up / log in
+  3. Create an API key (left sidebar → API Keys → Create API Key)
+  4. Copy the key — you'll paste it into .env in the next phase
+
+
+------------------------------------------------------------------------
+PHASE 3 — CONFIGURE FILES (fill your real details — stays local only)
+------------------------------------------------------------------------
+
+STEP 5: Create .env from template
+  copy .env.example .env
+  notepad .env
+
+  Fill in:
+    GROQ_API_KEY=paste_your_real_groq_key_here
+    TELEGRAM_BOT_TOKEN=
+    TELEGRAM_CHAT_ID=
+
+  Leave the two TELEGRAM_ lines blank unless you also want to test the
+  Telegram approve/edit/skip flow (not required for this test).
+
+  Save: Ctrl + S → close Notepad
+
+
+STEP 6: Create profile_data.yaml from template
+  copy profile_data.example.yaml profile_data.yaml
+  notepad profile_data.yaml
+
+  Fill in your REAL contact details (used to fill known form fields AND as
+  the header of the generated resume). At minimum:
+
+    full name: "Your Real Name"
+    email: "your.real.email@gmail.com"
+    phone: "+91-9XXXXXXXXX"
+    phone number: "+91-9XXXXXXXXX"
+    mobile: "+91-9XXXXXXXXX"
+    location: "Bangalore, India"
+    current location: "Bangalore, India"
+    linkedin: "https://linkedin.com/in/your-real-profile"
+    linkedin profile: "https://linkedin.com/in/your-real-profile"
+
+  Fill in the rest as accurately as you can (notice period, salary
+  expectations, work authorization, education) — LinkedIn forms ask about
+  these often, and unfilled fields fall through to Groq or the review queue.
+
+  Save: Ctrl + S → close Notepad
+
+
+STEP 7: Create resume_data.yaml from template — YOUR REAL WORK HISTORY
+  copy resume_data.example.yaml resume_data.yaml
+  notepad resume_data.yaml
+
+  This is the FACTUAL reference resume. The AI only ever rewords/reorders
+  this content per job — it never invents companies, titles, dates, or
+  facts not written here. Fill in real data, for example:
+
+    summary: >
+      Software engineer with 4 years of experience building backend
+      services in Python and Java. Strong background in REST APIs,
+      microservices, and cloud deployment. Looking for backend or
+      full-stack roles in fast-moving product teams.
+
+    experience:
+      - company: "Acme Technologies"
+        title: "Software Engineer"
+        location: "Bangalore, India"
+        start_date: "Jun 2022"
+        end_date: "Present"
+        bullets:
+          - "Built and maintained REST APIs in Python/Spring Boot serving 500K+ daily requests."
+          - "Migrated a monolith service to microservices, cutting deployment time by 35%."
+          - "Wrote SQL queries and optimized database indexes, reducing query latency by 20%."
+
+      - company: "Beta Softworks"
+        title: "Junior Developer"
+        location: "Hyderabad, India"
+        start_date: "Jul 2020"
+        end_date: "May 2022"
+        bullets:
+          - "Developed internal tooling in Python used by 3 engineering teams."
+          - "Set up CI pipelines with Git and Docker, reducing manual release steps."
+
+    education:
+      - degree: "Bachelor of Technology in Computer Science"
+        university: "Your Real University Name"
+        graduation_year: "2020"
+        location: "India"
+
+  Save: Ctrl + S → close Notepad
+
+  NOTE: Skills are NOT listed in this file — they come from mySkills in
+  config.py (Step 8 below). The AI can only choose from that list, in
+  whatever order best matches each job description.
+
+
+STEP 8: Create config.py from template (if you don't already have one)
+  copy config.example.py config.py
+  notepad config.py
+
+  Fill in / change these lines for THIS test:
+
+  -- Login (BACKUP ACCOUNT, not your real one) --
+    email = "your_backup_account_email@gmail.com"
+    password = "your_backup_account_password"
+
+  -- Job search scope (narrow it so it finds an Easy Apply job quickly) --
+    location = ["Bangalore"]
+    keywords = ["python developer", "backend engineer"]
+    experienceLevels = ["Entry level", "Associate"]
+    datePosted = ["Past Week"]
+    jobType = ["Full-time"]
+    remote = ["On-site", "Remote", "Hybrid"]
+
+  -- Real-submission safety settings for this test --
+    dryRun = False               ← this test SUBMITS a real application
+    maxApplicationsPerRun = 1    ← stop after exactly 1 application
+    headless = False             ← keep the browser visible so you can watch
+
+  -- Phone auto-fill --
+    Phone = "+91-9XXXXXXXXX"     ← your backup account's phone number
+
+  -- Smart Apply / AI settings --
+    matchThreshold = 30
+      (lowered temporarily from the default 60 — makes it more likely to
+      actually attempt a job instead of skipping everything as "below
+      threshold" if your skills don't closely match available postings.
+      Raise it back to 60 for normal day-to-day use later.)
+
+    mySkills = [
+        "Python", "Java", "Spring Boot", "REST API", "SQL",
+        "Git", "Docker", "Microservices"
+    ]
+      ← REPLACE with YOUR real skills. This is the master list the AI is
+      restricted to when tailoring the resume — it will only reorder/filter
+      from this exact list, never add new skills.
+
+    resumeSummary = (
+        "Software engineer with 4 years of experience in Python, Java, "
+        "REST APIs, and microservices. Looking for backend roles."
+    )
+      ← a short summary used for JD match SCORING (separate from the
+      longer summary in resume_data.yaml).
+
+    useGroqAI = True             ← required — turns on AI field-answers
+                                    AND is required for resume generation
+    useAiResumeGeneration = True ← turns on the new tailored-PDF feature
+
+  Save: Ctrl + S → close Notepad
+
+  *** DO NOT run: git add config.py  — leave it uncommitted from here on ***
+
+
+------------------------------------------------------------------------
+PHASE 4 — QUICK OFFLINE CHECK (no browser, no LinkedIn — test rendering only)
+------------------------------------------------------------------------
+This isolates the riskiest untested part — does a real PDF actually render
+correctly — before involving Chrome/LinkedIn at all. Takes under a minute.
+
+STEP 9: Create a throwaway test script
+  notepad test_resume_gen.py
+
+  Paste this in:
+
+    from smart_apply.resume_generator import generate_tailored_resume_pdf
+
+    fake_jd = """
+    We are looking for a Python engineer with experience in REST APIs,
+    Docker, and microservices. SQL and Git experience required.
+    """
+
+    path = generate_tailored_resume_pdf(fake_jd, "generated_resumes/test.pdf")
+    print("Result:", path)
+
+  Save → close Notepad
+
+STEP 10: Run it
+  python test_resume_gen.py
+
+  Expected: prints "Result: generated_resumes/test.pdf" with no traceback.
+
+  If you see:
+    "⚠️ AI resume generation is enabled but Jinja2/WeasyPrint are not available..."
+      → WeasyPrint isn't installed correctly. Go back to Phase 1 Step 3.
+    "Result: None"
+      → Something failed silently (Groq call, YAML parsing, or template
+      render). Check that resume_data.yaml has both "summary" and
+      "experience" filled in, and that GROQ_API_KEY in .env is correct.
+    A raw Python traceback
+      → This is unexpected (all failures should degrade to None) — note
+      the exact error, this is a bug to report.
+
+STEP 11: Open and check the generated PDF
+  Open generated_resumes\test.pdf in any PDF viewer.
+  Verify:
+    - Text is selectable (try Ctrl+A then Ctrl+C) — proves it's real text,
+      not a scanned image (important for ATS parsing)
+    - Headings appear as plain text: SUMMARY / SKILLS / EXPERIENCE / EDUCATION
+    - Your real company names, titles, and dates from resume_data.yaml
+      appear exactly as you wrote them — no invented employers or dates
+    - Skills listed are a subset of mySkills from config.py
+    - Summary/bullets sound reworded toward "Python, REST APIs, Docker,
+      microservices, SQL, Git" language (matching the fake JD above),
+      but same underlying facts as your reference data
+
+  If this looks correct, delete the throwaway script and continue to
+  Phase 5. If it looks wrong, stop here and report what's off before
+  testing with a real LinkedIn job.
+
+  del test_resume_gen.py
+
+
+------------------------------------------------------------------------
+PHASE 5 — FULL END-TO-END TEST (real Chrome, real LinkedIn, real submission)
+------------------------------------------------------------------------
+
+STEP 12: Run the bot
+  python linkedin.py
+
+  What you should see:
+    - Chrome opens automatically
+    - Bot logs into LinkedIn using your BACKUP account credentials
+    - Searches jobs based on your config.py filters
+    - Opens an Easy Apply form on a matching job
+    - Generates a tailored resume PDF for that specific job (this happens
+      BEFORE the Easy Apply button is even clicked — watch the console for
+      any AI-resume warnings appearing right after a job's JD is fetched)
+    - Uploads the resume, fills in known + AI-answered fields
+    - SUBMITS the application (dryRun = False)
+    - Stops after 1 application (maxApplicationsPerRun = 1)
+    - Chrome closes when done
+
+  Watch the console output closely for:
+    "⚠️ AI resume generation is enabled but Jinja2/WeasyPrint are not available..."
+      → generation silently failed for this run; the static resume from
+      resumes/ was used instead. Fix WeasyPrint before re-testing.
+    "⚠️ Could not confirm resume upload was accepted..."
+      → the file was sent to the upload field but couldn't be visually
+      confirmed. Worth checking manually whether the right file attached.
+    "⚠️ Found N unlabeled file upload fields — cannot safely tell..."
+      → the form had more than one ambiguous file input (e.g. resume +
+      cover letter); upload was skipped for safety, LinkedIn's saved
+      resume picker was used instead.
+    Any raw Python traceback
+      → note the exact error and which job/line it happened on.
+
+
+STEP 13: Verify the generated resume for THIS job
+  dir generated_resumes\
+  (Open the newest resume_<jobID>.pdf)
+
+  Same checks as Step 11, but now for a REAL job description:
+    - Text selectable, real headings, real company/title/dates unchanged
+    - Summary and bullets reworded to match THIS job's actual requirements
+    - Skills are a subset of mySkills, reordered toward what this job asks for
+
+
+STEP 14: Verify on LinkedIn (backup account)
+  1. Go to linkedin.com → My Jobs → Applied
+  2. Find the job the bot just applied to
+  3. If LinkedIn shows which resume was attached, confirm the filename/
+     timestamp matches the PDF from Step 13 — not an older static file
+
+
+STEP 15: Check the run's log files
+  dir data\
+  type data\daily_summary_*.txt
+  type data\review_queue_*.txt        (if it exists — lists anything flagged)
+
+  Confirm the summary counts make sense (1 applied, others as expected)
+  and nothing unexpected landed in the review queue.
+
+
+------------------------------------------------------------------------
+PHASE 6 — TEST THE FALLBACK PATH (confirm safety net works)
+------------------------------------------------------------------------
+
+STEP 16: Deliberately break resume generation, confirm the bot still works
+  ren resume_data.yaml resume_data_backup.yaml
+
+  Set config.py back to a safe state for this check:
+    dryRun = True
+    maxApplicationsPerRun = 1
+
+  Run again:
+    python linkedin.py
+
+  Expected: bot still runs fine, uses your OLD static resume from resumes/
+  (or LinkedIn's saved resume) instead of a generated one — no crash.
+
+  Then restore your data:
+    ren resume_data_backup.yaml resume_data.yaml
+
+
+------------------------------------------------------------------------
+TROUBLESHOOTING
+------------------------------------------------------------------------
+
+ERROR: "import weasyprint" fails / DLL load errors on Windows
+  → GTK3 runtime not installed correctly. Re-check Phase 1 Step 3, restart
+    Command Prompt after installing, and re-run the verify command.
+
+ERROR: Groq call always fails / resume never looks tailored
+  → Check GROQ_API_KEY in .env is correct and has no extra spaces/quotes.
+  → Check your Groq account hasn't hit a rate limit.
+
+ERROR: "Result: None" from test_resume_gen.py with no warning printed
+  → resume_data.yaml is missing "summary" or "experience" — both are
+    required for generation to proceed at all.
+
+ERROR: No jobs found / everything skipped as "below match threshold"
+  → Broaden keywords/location, or lower matchThreshold further temporarily.
+
+ERROR: LinkedIn login failed / CAPTCHA
+  → Log into the backup account manually in Chrome once first, then re-run
+    (the bot reuses the saved session/cookies).
+
+ERROR: python not found / pip not found
+  → See general TESTING_GUIDE.txt Phase 1 for Python install + PATH setup.
+
+
+------------------------------------------------------------------------
+FILE REFERENCE (new/changed for this feature)
+------------------------------------------------------------------------
+
+  .env                      ← GROQ_API_KEY, TELEGRAM_* (never pushed)
+  .env.example              ← safe template (pushed)
+  resume_data.yaml          ← your REAL reference resume data (never pushed)
+  resume_data.example.yaml  ← safe template (pushed)
+  profile_data.yaml         ← your REAL contact info (never pushed)
+  resume_templates/         ← the HTML/Jinja2 resume layout (pushed, no data)
+  smart_apply/resume_generator.py ← generation logic (pushed, no data)
+  generated_resumes/        ← output PDFs per job (never pushed)
+  resumes/                  ← your OLD static resume(s) — fallback only
+
+
+================================================================================
+   SUMMARY OF COMMANDS (copy-paste ready)
+================================================================================
+
+  git --version
+  python --version
+  pip --version
+
+  cd EasyApplyJobsBot
+  pip install -r requirements.txt
+  python -c "import weasyprint; print('WeasyPrint OK')"
+
+  copy .env.example .env
+  notepad .env
+
+  copy profile_data.example.yaml profile_data.yaml
+  notepad profile_data.yaml
+
+  copy resume_data.example.yaml resume_data.yaml
+  notepad resume_data.yaml
+
+  copy config.example.py config.py
+  notepad config.py
+
+  REM Phase 4 — quick offline check
+  python test_resume_gen.py
+  del test_resume_gen.py
+
+  REM Phase 5 — full end-to-end real test
+  python linkedin.py
+  dir generated_resumes\
+  dir data\
+  type data\daily_summary_*.txt
+
+================================================================================

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ full_name }} — Resume</title>
+<style>
+    @page {
+        size: Letter;
+        margin: 0.6in 0.7in;
+    }
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #111111;
+        font-size: 10.5pt;
+        line-height: 1.35;
+    }
+    h1 {
+        font-size: 16pt;
+        margin: 0 0 2pt 0;
+        font-weight: bold;
+    }
+    .contact {
+        font-size: 9.5pt;
+        margin: 0 0 12pt 0;
+        color: #333333;
+    }
+    h2 {
+        font-size: 11pt;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5pt;
+        border-bottom: 1pt solid #111111;
+        margin: 12pt 0 6pt 0;
+        padding-bottom: 1pt;
+    }
+    p.summary {
+        margin: 0 0 4pt 0;
+    }
+    .skills-list {
+        margin: 0 0 4pt 0;
+    }
+    .job {
+        margin-bottom: 8pt;
+    }
+    .job-header {
+        font-weight: bold;
+    }
+    .job-subheader {
+        font-style: italic;
+        font-size: 10pt;
+        color: #333333;
+        margin: 0 0 3pt 0;
+    }
+    ul {
+        margin: 0 0 0 0;
+        padding-left: 14pt;
+    }
+    li {
+        margin-bottom: 2pt;
+    }
+    .edu-entry {
+        margin-bottom: 4pt;
+    }
+</style>
+</head>
+<body>
+
+<h1>{{ full_name }}</h1>
+<p class="contact">
+    {{ [email, phone, location, linkedin] | select | join(" | ") }}
+</p>
+
+{% if summary %}
+<h2>Summary</h2>
+<p class="summary">{{ summary }}</p>
+{% endif %}
+
+{% if skills %}
+<h2>Skills</h2>
+<p class="skills-list">{{ skills | join(", ") }}</p>
+{% endif %}
+
+{% if experience %}
+<h2>Experience</h2>
+{% for job in experience %}
+<div class="job">
+    <div class="job-header">{{ job.title }} — {{ job.company }}</div>
+    <div class="job-subheader">
+        {{ [job.location, [job.start_date, job.end_date] | select | join(" - ")] | select | join(" | ") }}
+    </div>
+    <ul>
+    {% for bullet in job.bullets %}
+        <li>{{ bullet }}</li>
+    {% endfor %}
+    </ul>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if education %}
+<h2>Education</h2>
+{% for edu in education %}
+<div class="edu-entry">
+    <span class="job-header">{{ edu.degree }}</span> — {{ edu.university }}
+    {% if edu.graduation_year %}({{ edu.graduation_year }}){% endif %}
+    {% if edu.location %}<br>{{ edu.location }}{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+
+</body>
+</html>

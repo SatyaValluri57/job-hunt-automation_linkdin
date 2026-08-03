@@ -45,6 +45,9 @@ RUN apt-get update && apt-get install -y \
     libxtst6 \
     lsb-release \
     xdg-utils \
+    libgdk-pixbuf2.0-0 \
+    libffi-dev \
+    shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome
@@ -63,6 +66,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY *.py ./
 COPY *.yaml ./
+COPY smart_apply ./smart_apply/
+COPY resume_templates ./resume_templates/
 
 # Create directories for data and cookies
 RUN mkdir -p /app/data /app/cookies

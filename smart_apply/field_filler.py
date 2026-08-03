@@ -12,6 +12,7 @@ from typing import Dict, Optional, List
 
 import config
 from smart_apply.review_queue import add_low_confidence
+from smart_apply.telegram_notifier import ask_for_approval, _is_configured as telegram_configured
 from smart_apply.groq_tailorer import get_field_answer
 
 try:
@@ -70,7 +71,8 @@ def _fill_select(element, value: str) -> None:
         pass
 
 
-def _fill_radio(elements: List, value: str) -> None:
+def _fill_radio(elements: List, value: str) -> bool:
+    """Click the radio option matching value. Returns False (no click) if no option matches."""
     try:
         val_lower = value.lower()
         for el in elements:
@@ -78,12 +80,10 @@ def _fill_radio(elements: List, value: str) -> None:
             if val_lower in opt_val or opt_val in val_lower:
                 el.click()
                 time.sleep(0.3)
-                return
-        # fallback: click first option
-        if elements:
-            elements[0].click()
+                return True
+        return False
     except Exception:
-        pass
+        return False
 
 
 def fill_unknown_fields(
@@ -132,28 +132,86 @@ def fill_unknown_fields(
         # 3. Route based on confidence
         if answer and confidence in ("high", "medium"):
             # Auto-fill
+            filled = True
             try:
                 if ftype == "text":
                     _fill_text(element, answer)
                 elif ftype == "select":
                     _fill_select(element, answer)
                 elif ftype == "radio":
-                    _fill_radio(element if isinstance(element, list) else [element], answer)
+                    filled = _fill_radio(element if isinstance(element, list) else [element], answer)
                 elif ftype == "checkbox":
                     if answer.lower() in ("yes", "true", "1"):
                         if not element.is_selected():
                             element.click()
             except Exception:
-                pass
+                filled = False
+            if not filled:
+                # No matching radio option — do not guess, send to review queue
+                review_count += 1
+                add_low_confidence(
+                    job_id=job_id,
+                    match_score=0,
+                    offer_page=offer_page,
+                    job_properties=job_properties,
+                    reason=f"No matching radio option: '{label}' | suggested: '{answer}' | options: {options[:5]}",
+                )
         else:
-            # Low confidence or no answer → review queue
-            review_count += 1
-            add_low_confidence(
-                job_id=job_id,
-                match_score=0,
-                offer_page=offer_page,
-                job_properties=job_properties,
-                reason=f"Unknown field: '{label}' | suggested: '{answer}' | confidence: {confidence} | options: {options[:5]}",
-            )
+            # Low confidence or no answer — try Telegram two-way first
+            if telegram_configured():
+                tg_result = ask_for_approval(
+                    job_title=job_properties.split("|")[1].strip() if "|" in job_properties else job_properties,
+                    question=label,
+                    suggested_answer=answer or "",
+                    confidence=confidence,
+                    offer_page=offer_page,
+                )
+                action = tg_result.get("action", "skip")
+                final_answer = tg_result.get("value", "")
+                if action in ("approve", "edit") and final_answer:
+                    filled = True
+                    try:
+                        if ftype == "text":
+                            _fill_text(element, final_answer)
+                        elif ftype == "select":
+                            _fill_select(element, final_answer)
+                        elif ftype == "radio":
+                            filled = _fill_radio(element if isinstance(element, list) else [element], final_answer)
+                        elif ftype == "checkbox":
+                            if final_answer.lower() in ("yes", "true", "1"):
+                                if not element.is_selected():
+                                    element.click()
+                    except Exception:
+                        filled = False
+                    if not filled:
+                        # Telegram reply didn't match any radio option — don't guess, send to review
+                        review_count += 1
+                        add_low_confidence(
+                            job_id=job_id,
+                            match_score=0,
+                            offer_page=offer_page,
+                            job_properties=job_properties,
+                            reason=f"Telegram answer matched no radio option: '{label}' | your answer: '{final_answer}' | options: {options[:5]}",
+                        )
+                else:
+                    # User skipped or timed out → review queue
+                    review_count += 1
+                    add_low_confidence(
+                        job_id=job_id,
+                        match_score=0,
+                        offer_page=offer_page,
+                        job_properties=job_properties,
+                        reason=f"Telegram skip/timeout: '{label}' | suggested: '{answer}' | options: {options[:5]}",
+                    )
+            else:
+                # No Telegram configured → straight to review queue file
+                review_count += 1
+                add_low_confidence(
+                    job_id=job_id,
+                    match_score=0,
+                    offer_page=offer_page,
+                    job_properties=job_properties,
+                    reason=f"Unknown field: '{label}' | suggested: '{answer}' | confidence: {confidence} | options: {options[:5]}",
+                )
 
     return review_count

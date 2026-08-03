@@ -6,6 +6,10 @@ IMPORTANT NOTES:
   - Fill config.py with REAL credentials ONLY on your local/test device
   - config.example.py has dummy values — that's the file in GitHub
   - Keep dryRun = True for first test (no real applications submitted)
+  - useAiResumeGeneration is optional and OFF by default. If you turn it on, WeasyPrint
+    additionally needs the GTK3 runtime installed on Windows (pip install alone is not
+    enough — see WeasyPrint's docs, "Windows" section, for the installer link). Leave
+    it False to skip this and run the bot exactly as before.
 ================================================================================
 
 
