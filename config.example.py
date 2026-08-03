@@ -131,3 +131,16 @@ dryRun = True
 # Optional cap: stop after this many successful applications in one run. 0 = no limit.
 # Example: 50 or 100 to avoid applying too many jobs in a single session (LinkedIn recommends under 200/day).
 maxApplicationsPerRun = 0
+# ── Smart Apply settings ─────────────────────────────────────────────────────
+matchThreshold = 60
+
+mySkills = [
+    "Python", "Java", "Spring Boot", "REST API", "SQL",
+    "Git", "Linux", "Docker", "Microservices", "Agile"
+]
+
+resumeSummary = (
+    "Add your real resume summary here. 3-5 sentences describing your skills and experience."
+)
+
+useGroqAI = False

@@ -19,6 +19,16 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 
+from smart_apply.matcher import score_match, is_above_threshold
+from smart_apply.jd_fetcher import fetch_jd_text
+from smart_apply.review_queue import add_low_confidence, add_external_apply
+from smart_apply.daily_summary import write_daily_summary
+try:
+    from smart_apply.groq_tailorer import score_match_with_ai
+    GROQ_TAILORER_AVAILABLE = True
+except Exception:
+    GROQ_TAILORER_AVAILABLE = False
+
 try:
     from selenium_stealth import stealth
     STEALTH_AVAILABLE = True
@@ -131,6 +141,9 @@ class Linkedin:
         countBlacklisted = 0
         countAlreadyApplied = 0
         countCannotApply = 0
+        countExternalApply = 0
+        countBelowThreshold = 0
+        countLowConfidence = 0
         startTime = time.time()
         reachedCap = False
 
@@ -210,7 +223,29 @@ class Linkedin:
                         lineToWrite = jobProperties + " | " + "* 🤬 Blacklisted Job, skipped!: " +str(offerPage)
                         self.displayWriteResults(lineToWrite)
                     
-                    else :                    
+                    else :
+                        # ── Smart Apply: fetch JD and score match ──────────
+                        jd_text = fetch_jd_text(self.driver)
+                        match_score = 0
+                        if jd_text and hasattr(config, 'mySkills') and config.mySkills:
+                            if (hasattr(config, 'useGroqAI') and config.useGroqAI
+                                    and GROQ_TAILORER_AVAILABLE):
+                                ai_score = score_match_with_ai(
+                                    jd_text,
+                                    getattr(config, 'resumeSummary', '')
+                                )
+                                match_score = ai_score if ai_score >= 0 else score_match(jd_text, config.mySkills)
+                            else:
+                                match_score = score_match(jd_text, config.mySkills)
+
+                        threshold = getattr(config, 'matchThreshold', 60)
+                        if jd_text and not is_above_threshold(match_score, threshold):
+                            countBelowThreshold += 1
+                            lineToWrite = jobProperties + " | " + f"* ⛔ Below match threshold ({match_score}%<{threshold}%), skipped: " + str(offerPage)
+                            self.displayWriteResults(lineToWrite)
+                            continue
+                        # ──────────────────────────────────────────────────
+
                         easyApplybutton = self.easyApplyButton()
 
                         if easyApplybutton is not None:
@@ -276,9 +311,26 @@ class Linkedin:
                                     lineToWrite = jobProperties + " | " + "* 🥵 Cannot apply to this Job! " +str(offerPage)
                                     self.displayWriteResults(lineToWrite)
                         else:
-                            countAlreadyApplied += 1
-                            lineToWrite = jobProperties + " | " + "* 🥳 Already applied! Job: " +str(offerPage)
-                            self.displayWriteResults(lineToWrite)
+                            # Check if it's an external apply job (no Easy Apply button)
+                            try:
+                                ext_btn = self.driver.find_element(
+                                    By.XPATH,
+                                    "//div[contains(@class,'jobs-apply-button--top-card')]//button"
+                                )
+                                btn_text = ext_btn.text.strip().lower()
+                                if "apply" in btn_text and "easy" not in btn_text:
+                                    countExternalApply += 1
+                                    add_external_apply(jobID, str(offerPage), jobProperties)
+                                    lineToWrite = jobProperties + " | " + "* 🔗 External apply portal, logged for manual review: " + str(offerPage)
+                                    self.displayWriteResults(lineToWrite)
+                                else:
+                                    countAlreadyApplied += 1
+                                    lineToWrite = jobProperties + " | " + "* 🥳 Already applied! Job: " + str(offerPage)
+                                    self.displayWriteResults(lineToWrite)
+                            except Exception:
+                                countAlreadyApplied += 1
+                                lineToWrite = jobProperties + " | " + "* 🥳 Already applied! Job: " + str(offerPage)
+                                self.displayWriteResults(lineToWrite)
 
                     if reachedCap:
                         break
@@ -293,6 +345,15 @@ class Linkedin:
         if reachedCap:
             utils.prYellow("🛑 Reached max applications per run limit (" + str(config.maxApplicationsPerRun) + "). Stopping.")
         durationSec = time.time() - startTime
+        stats = {
+            "applied": countApplied,
+            "dry_run": countApplied if config.dryRun else 0,
+            "external": countExternalApply,
+            "below_threshold": countBelowThreshold,
+            "low_confidence": countLowConfidence,
+            "duration_min": round(durationSec / 60, 1),
+        }
+        write_daily_summary(stats)
         utils.printSessionSummary(
             countJobs, countApplied, countBlacklisted, countAlreadyApplied, countCannotApply, durationSec
         )

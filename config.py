@@ -131,3 +131,25 @@ dryRun = True
 # Optional cap: stop after this many successful applications in one run. 0 = no limit.
 # Example: 50 or 100 to avoid applying too many jobs in a single session (LinkedIn recommends under 200/day).
 maxApplicationsPerRun = 0
+# ── Smart Apply settings ─────────────────────────────────────────────────────
+# Minimum JD match % required to apply. Jobs below this are logged, not applied.
+matchThreshold = 60
+
+# Your skills list — used for keyword-based JD matching (before AI call)
+# Add your real skills here.
+mySkills = [
+    "Python", "Java", "Spring Boot", "REST API", "SQL",
+    "Git", "Linux", "Docker", "Microservices", "Agile"
+]
+
+# Short resume summary — used by Groq AI for richer scoring and field answers
+# Keep this honest and factual (3-5 sentences max)
+resumeSummary = (
+    "Experienced backend developer with expertise in Python, Java, and Spring Boot. "
+    "Proficient in REST API design, SQL databases, Docker, and Agile workflows. "
+    "Strong problem-solving skills with experience in microservices architecture."
+)
+
+# Groq AI (optional) — set GROQ_API_KEY in environment for AI-powered scoring
+# Leave blank to use keyword-only matching (still works fine)
+useGroqAI = False
