@@ -10,6 +10,11 @@ from typing import Optional
 import config
 import constants
 import utils
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -23,6 +28,9 @@ from smart_apply.matcher import score_match, is_above_threshold
 from smart_apply.jd_fetcher import fetch_jd_text
 from smart_apply.review_queue import add_low_confidence, add_external_apply
 from smart_apply.daily_summary import write_daily_summary
+from smart_apply.field_detector import detect_unknown_fields
+from smart_apply.field_filler import fill_unknown_fields
+
 try:
     from smart_apply.groq_tailorer import score_match_with_ai
     GROQ_TAILORER_AVAILABLE = True
@@ -266,6 +274,14 @@ class Linkedin:
                                 self.chooseResume()
                                 # Fill phone number before submitting
                                 self.fillPhoneNumber()
+
+                                # Phase 2: detect and fill unknown fields
+                                unknown_fields = detect_unknown_fields(self.driver)
+                                if unknown_fields:
+                                    low_conf = fill_unknown_fields(
+                                        unknown_fields, jd_text, jobProperties, str(offerPage), jobID
+                                    )
+                                    countLowConfidence += low_conf
 
                                 if config.dryRun:
                                     # In dry-run mode, do not submit the application,

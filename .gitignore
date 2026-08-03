@@ -185,3 +185,6 @@ linkedinProCode.py
 # local automation (do not push)
 scripts/daily-improve.ps1
 docs/DAILY_IMPROVE_SETUP.md
+# user profile data (sensitive — never commit)
+profile_data.yaml
+.env
