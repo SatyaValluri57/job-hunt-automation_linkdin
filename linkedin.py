@@ -286,9 +286,14 @@ class Linkedin:
                                     lineToWrite = jobProperties + " | " + "* 🥵 Cannot apply to this Job! " +str(offerPage)
                                     self.displayWriteResults(lineToWrite)
                         else:
-                            countAlreadyApplied += 1
-                            lineToWrite = jobProperties + " | " + "* 🥳 Already applied! Job: " +str(offerPage)
-                            self.displayWriteResults(lineToWrite)
+                            if self.isAlreadyApplied():
+                                countAlreadyApplied += 1
+                                lineToWrite = jobProperties + " | " + "* 🥳 Already applied! Job: " +str(offerPage)
+                                self.displayWriteResults(lineToWrite)
+                            else:
+                                countCannotApply += 1
+                                lineToWrite = jobProperties + " | " + "* ⚠️ No Easy Apply button found (external apply or selector miss): " +str(offerPage)
+                                self.displayWriteResults(lineToWrite)
 
                     if reachedCap:
                         break
@@ -330,7 +335,19 @@ class Linkedin:
         jobLocation = ""
 
         try:
-            jobTitle = self.driver.find_element(By.XPATH, "//h1[contains(@class, 'job-title')]").get_attribute("innerHTML").strip()
+            titleSelectors = [
+                "//h1[contains(@class, 'job-title')]",
+                "//div[contains(@class,'job-details-jobs-unified-top-card')]//h1",
+                "//h1[contains(@class,'t-24')]",
+            ]
+            jobTitle = ""
+            for selector in titleSelectors:
+                try:
+                    jobTitle = self.driver.find_element(By.XPATH, selector).get_attribute("innerHTML").strip()
+                    if jobTitle:
+                        break
+                except Exception:
+                    continue
             res = [blItem for blItem in config.blackListTitles if (blItem.lower() in jobTitle.lower())]
             if (len(res) > 0):
                 jobTitle += "(blacklisted title: " + ' '.join(res) + ")"
@@ -341,7 +358,19 @@ class Linkedin:
 
         try:
             time.sleep(5)
-            jobDetail = self.driver.find_element(By.XPATH, "//div[contains(@class, 'job-details-jobs')]//div").text.replace("·", "|")
+            detailSelectors = [
+                "//div[contains(@class,'job-details-jobs-unified-top-card__primary-description-container')]",
+                "//div[contains(@class, 'job-details-jobs-unified-top-card')]//div[contains(@class,'tvm__text')]/..",
+                "//div[contains(@class, 'job-details-jobs')]//div",
+            ]
+            jobDetail = ""
+            for selector in detailSelectors:
+                try:
+                    jobDetail = self.driver.find_element(By.XPATH, selector).text.replace("·", "|")
+                    if jobDetail:
+                        break
+                except Exception:
+                    continue
             res = [blItem for blItem in config.blacklistCompanies if (blItem.lower() in jobTitle.lower())]
             if (len(res) > 0):
                 jobDetail += "(blacklisted company: " + ' '.join(res) + ")"
@@ -366,14 +395,32 @@ class Linkedin:
         return textToWrite
 
     def easyApplyButton(self) -> Optional[webdriver.remote.webelement.WebElement]:
-        try:
-            time.sleep(random.uniform(1, constants.botSpeed))
-            button = self.driver.find_element(By.XPATH, "//div[contains(@class,'jobs-apply-button--top-card')]//button[contains(@class, 'jobs-apply-button')]")
-            EasyApplyButton = button
-        except Exception:
-            EasyApplyButton = None
+        time.sleep(random.uniform(1, constants.botSpeed))
+        selectors = [
+            "//button[@id='jobs-apply-button-id']",
+            "//button[contains(@class,'jobs-apply-button') and .//span[normalize-space(text())='Easy Apply']]",
+            "//button[contains(@aria-label,'Easy Apply')]",
+        ]
+        for selector in selectors:
+            try:
+                button = self.driver.find_element(By.XPATH, selector)
+                if button.is_displayed():
+                    return button
+            except Exception:
+                continue
 
-        return EasyApplyButton
+        return None
+
+    def isAlreadyApplied(self) -> bool:
+        try:
+            return self.element_exists(
+                self.driver,
+                By.XPATH,
+                "//span[contains(@class,'artdeco-inline-feedback') and contains(normalize-space(text()),'Applied')]"
+                " | //*[contains(@class,'jobs-s-apply') and contains(normalize-space(text()),'Applied')]"
+            )
+        except Exception:
+            return False
 
     def fillPhoneNumber(self) -> None:
         """Fill phone number fields if they exist and are empty"""
