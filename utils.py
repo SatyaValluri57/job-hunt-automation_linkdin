@@ -129,6 +129,7 @@ def printSessionSummary(
     count_already_applied: int,
     count_cannot_apply: int,
     duration_sec: float,
+    count_needs_review: int = 0,
 ):
     """Print and write a session summary to the data file."""
     duration_min = round(duration_sec / 60, 1)
@@ -140,6 +141,8 @@ def printSessionSummary(
     prGreen(f"   🤬 Blacklisted:     {count_blacklisted}")
     prGreen(f"   🥳 Already applied: {count_already_applied}")
     prGreen(f"   🥵 Could not apply: {count_cannot_apply}")
+    if count_needs_review:
+        prGreen(f"   ⚠️ Fields needing review: {count_needs_review}")
     prGreen(f"   ⏱ Duration:         {duration_min} minute(s)")
     prGreen("=" * 60 + "\n")
 

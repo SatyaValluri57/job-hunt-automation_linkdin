@@ -131,3 +131,13 @@ dryRun = True
 # Optional cap: stop after this many successful applications in one run. 0 = no limit.
 # Example: 50 or 100 to avoid applying too many jobs in a single session (LinkedIn recommends under 200/day).
 maxApplicationsPerRun = 0
+
+# ── Smart field-fill settings ────────────────────────────────────────────────
+# Fields the bot cannot fill from profile_data.yaml are logged to
+# data/review_queue_<date>.txt instead of being guessed, unless useGroqAI
+# below is enabled.
+# If True, unmatched Easy Apply questions are answered using the Groq AI API.
+# Requires GROQ_API_KEY set in a .env file and the groq package installed.
+useGroqAI = False
+# 3-5 sentence summary of your experience, used as context for Groq AI answers.
+resumeSummary = ""

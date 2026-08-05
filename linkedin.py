@@ -8,7 +8,14 @@ from typing import Optional
 
 import config
 import constants
+import field_filler
 import utils
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -130,6 +137,7 @@ class Linkedin:
         countBlacklisted = 0
         countAlreadyApplied = 0
         countCannotApply = 0
+        countNeedsReview = 0
         startTime = time.time()
         reachedCap = False
 
@@ -226,7 +234,10 @@ class Linkedin:
                             easyApplybutton.click()
                             time.sleep(random.uniform(1, constants.botSpeed))
 
-                            result = self.completeApplyFlow(offerPage)
+                            result, needsReview = self.completeApplyFlow(offerPage)
+                            countNeedsReview += needsReview
+                            if needsReview:
+                                result += f" | ⚠️ {needsReview} field(s) queued for review"
                             lineToWrite = jobProperties + " | " + result
                             self.displayWriteResults(lineToWrite)
 
@@ -260,7 +271,7 @@ class Linkedin:
             utils.prYellow("🛑 Reached max applications per run limit (" + str(config.maxApplicationsPerRun) + "). Stopping.")
         durationSec = time.time() - startTime
         utils.printSessionSummary(
-            countJobs, countApplied, countBlacklisted, countAlreadyApplied, countCannotApply, durationSec
+            countJobs, countApplied, countBlacklisted, countAlreadyApplied, countCannotApply, durationSec, countNeedsReview
         )
         utils.donate()
 
@@ -470,19 +481,24 @@ class Linkedin:
             if config.displayWarnings:
                 utils.prYellow(f"⚠️ Warning: Error in fillPhoneNumber: {str(e)[0:50]}")
 
-    def completeApplyFlow(self, offerPage: str) -> str:
+    def completeApplyFlow(self, offerPage: str) -> tuple:
         maxSteps = 15
+        needsReview = 0
         for _ in range(maxSteps):
             self.chooseResume()
             self.fillPhoneNumber()
 
+            unknownFields = field_filler.detect_unknown_fields(self.driver)
+            if unknownFields:
+                needsReview += field_filler.fill_unknown_fields(self.driver, unknownFields, offerPage)
+
             submitButton = self.findVisibleButton(["Submit application"])
             if submitButton is not None:
                 if config.dryRun:
-                    return "* 🧪 DRY RUN - Would apply to this job: " + str(offerPage)
+                    return "* 🧪 DRY RUN - Would apply to this job: " + str(offerPage), needsReview
                 submitButton.click()
                 time.sleep(random.uniform(1, constants.botSpeed))
-                return "* 🥳 Just Applied to this job: " + str(offerPage)
+                return "* 🥳 Just Applied to this job: " + str(offerPage), needsReview
 
             reviewButton = self.findVisibleButton(["Review your application"])
             if reviewButton is not None:
@@ -503,7 +519,7 @@ class Linkedin:
 
             break
 
-        return "* 🥵 Cannot apply to this Job! " + str(offerPage)
+        return "* 🥵 Cannot apply to this Job! " + str(offerPage), needsReview
 
     def findVisibleButton(self, labels: list) -> Optional[webdriver.remote.webelement.WebElement]:
         for label in labels:
