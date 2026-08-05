@@ -1,5 +1,4 @@
 import hashlib
-import math
 import os
 import pickle
 import random
@@ -226,65 +225,17 @@ class Linkedin:
                         if easyApplybutton is not None:
                             easyApplybutton.click()
                             time.sleep(random.uniform(1, constants.botSpeed))
-                            
-                            # Fix for issue #72: LinkedIn added an extra "Continue to next step" button after Easy Apply
-                            try:
-                                continue_button = self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Continue to next step']")
-                                if continue_button.is_displayed():
-                                    continue_button.click()
-                                    time.sleep(random.uniform(1, constants.botSpeed))
-                            except Exception:
-                                # If button doesn't exist, continue normally
-                                pass
-                            
-                            try:
-                                self.chooseResume()
-                                # Fill phone number before submitting
-                                self.fillPhoneNumber()
 
-                                if config.dryRun:
-                                    # In dry-run mode, do not submit the application,
-                                    # just log that we would have applied.
-                                    lineToWrite = jobProperties + " | " + "* 🧪 DRY RUN - Would apply to this job: "  + str(offerPage)
-                                    self.displayWriteResults(lineToWrite)
-                                else:
-                                    self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Submit application']").click()
-                                    time.sleep(random.uniform(1, constants.botSpeed))
+                            result = self.completeApplyFlow(offerPage)
+                            lineToWrite = jobProperties + " | " + result
+                            self.displayWriteResults(lineToWrite)
 
-                                    lineToWrite = jobProperties + " | " + "* 🥳 Just Applied to this job: "  + str(offerPage)
-                                    self.displayWriteResults(lineToWrite)
-                                    countApplied += 1
-                                    if config.maxApplicationsPerRun and countApplied >= config.maxApplicationsPerRun:
-                                        reachedCap = True
-
-                            except Exception:
-                                try:
-                                    # Fill phone number before continuing
-                                    self.fillPhoneNumber()
-                                    self.driver.find_element(By.CSS_SELECTOR,"button[aria-label='Continue to next step']").click()
-                                    time.sleep(random.uniform(1, constants.botSpeed))
-                                    self.chooseResume()
-                                    comPercentage = self.driver.find_element(By.XPATH,'html/body/div[3]/div/div/div[2]/div/div/span').text
-                                    percenNumber = int(comPercentage[0:comPercentage.index("%")])
-                                    
-                                    # For multi-step forms, respect dry-run as well.
-                                    if config.dryRun:
-                                        result = "* 🧪 DRY RUN - Would go through multi-step application: " + str(offerPage)
-                                    else:
-                                        result = self.applyProcess(percenNumber,offerPage)
-
-                                    lineToWrite = jobProperties + " | " + result
-                                    self.displayWriteResults(lineToWrite)
-                                    if "Just Applied" in result and not config.dryRun:
-                                        countApplied += 1
-                                        if config.maxApplicationsPerRun and countApplied >= config.maxApplicationsPerRun:
-                                            reachedCap = True
-                                
-                                except Exception: 
-                                    countCannotApply += 1
-                                    self.chooseResume()
-                                    lineToWrite = jobProperties + " | " + "* 🥵 Cannot apply to this Job! " +str(offerPage)
-                                    self.displayWriteResults(lineToWrite)
+                            if "Just Applied" in result:
+                                countApplied += 1
+                                if config.maxApplicationsPerRun and countApplied >= config.maxApplicationsPerRun:
+                                    reachedCap = True
+                            elif "Cannot apply" in result:
+                                countCannotApply += 1
                         else:
                             if self.isAlreadyApplied():
                                 countAlreadyApplied += 1
@@ -519,38 +470,55 @@ class Linkedin:
             if config.displayWarnings:
                 utils.prYellow(f"⚠️ Warning: Error in fillPhoneNumber: {str(e)[0:50]}")
 
-    def applyProcess(self, percentage: int, offerPage: str) -> str:
-        applyPages = math.floor(100 / percentage) - 2 
-        result = ""
-        for pages in range(applyPages):
-            # Fill phone number before continuing to next step
+    def completeApplyFlow(self, offerPage: str) -> str:
+        maxSteps = 15
+        for _ in range(maxSteps):
+            self.chooseResume()
             self.fillPhoneNumber()
-            self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Continue to next step']").click()
-            time.sleep(random.uniform(1, constants.botSpeed))
 
-        # Fill phone number before review
-        self.fillPhoneNumber()
+            submitButton = self.findVisibleButton(["Submit application"])
+            if submitButton is not None:
+                if config.dryRun:
+                    return "* 🧪 DRY RUN - Would apply to this job: " + str(offerPage)
+                submitButton.click()
+                time.sleep(random.uniform(1, constants.botSpeed))
+                return "* 🥳 Just Applied to this job: " + str(offerPage)
 
-        if config.dryRun:
-            # In dry-run mode, navigate up to this point but do not submit.
-            result = "* 🧪 DRY RUN - Would apply to this job: " + str(offerPage)
-            return result
+            reviewButton = self.findVisibleButton(["Review your application"])
+            if reviewButton is not None:
+                reviewButton.click()
+                time.sleep(random.uniform(1, constants.botSpeed))
+                if config.followCompanies is False:
+                    try:
+                        self.driver.find_element(By.CSS_SELECTOR, "label[for='follow-company-checkbox']").click()
+                    except Exception:
+                        pass
+                continue
 
-        self.driver.find_element( By.CSS_SELECTOR, "button[aria-label='Review your application']").click()
-        time.sleep(random.uniform(1, constants.botSpeed))
+            nextButton = self.findVisibleButton(["Continue to next step", "Next"])
+            if nextButton is not None:
+                nextButton.click()
+                time.sleep(random.uniform(1, constants.botSpeed))
+                continue
 
-        if config.followCompanies is False:
-            try:
-                self.driver.find_element(By.CSS_SELECTOR, "label[for='follow-company-checkbox']").click()
-            except Exception:
-                pass
+            break
 
-        self.driver.find_element(By.CSS_SELECTOR, "button[aria-label='Submit application']").click()
-        time.sleep(random.uniform(1, constants.botSpeed))
+        return "* 🥵 Cannot apply to this Job! " + str(offerPage)
 
-        result = "* 🥳 Just Applied to this job: " + str(offerPage)
-
-        return result
+    def findVisibleButton(self, labels: list) -> Optional[webdriver.remote.webelement.WebElement]:
+        for label in labels:
+            selectors = [
+                (By.CSS_SELECTOR, f"button[aria-label='{label}']"),
+                (By.XPATH, f"//button[.//span[normalize-space(text())='{label}']]"),
+            ]
+            for by, selector in selectors:
+                try:
+                    button = self.driver.find_element(by, selector)
+                    if button.is_displayed() and button.is_enabled():
+                        return button
+                except Exception:
+                    continue
+        return None
 
     def displayWriteResults(self, lineToWrite: str) -> None:
         try:
