@@ -244,10 +244,7 @@ def fill_unknown_fields(driver, unknown_fields: List[Dict], offer_page: str = ""
         answer = _find_in_profile(label, profile)
 
         if not answer and use_groq:
-            question = label
-            if options:
-                question += f" (options: {', '.join(str(o) for o in options[:8])})"
-            result = groq_tailorer.get_field_answer(question, jd_text, resume_summary)
+            result = groq_tailorer.get_field_answer(label, jd_text, resume_summary, options=options)
             if result.get("confidence") in ("high", "medium"):
                 answer = result.get("answer") or None
 
